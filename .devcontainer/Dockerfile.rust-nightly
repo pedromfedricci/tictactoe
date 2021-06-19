@@ -1,0 +1,27 @@
+ARG RUST_IMAGE=rustlang/rust:nightly
+
+FROM $RUST_IMAGE as install-sys-pkgs
+
+RUN apt-get update -y --no-install-recommends \
+    && \
+    apt-get install -y \
+    # Programming tool for memory debugging and profilling.
+    valgrind
+
+
+FROM install-sys-pkgs AS create-dev-user
+
+ARG USER=rustdev
+RUN useradd $USER --shell /bin/bash --create-home
+USER $USER
+
+
+FROM create-dev-user AS install-rust-tools
+
+RUN rustup component add \
+    # Nightly already has clippy, rustfmt and rust-docs.
+    rust-src \
+    && \
+    cargo install \
+    cargo-valgrind \
+    cargo-expand
