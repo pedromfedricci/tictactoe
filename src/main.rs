@@ -120,7 +120,6 @@ impl<const LEN: usize, const COLS: usize> GameBoard<LEN, COLS> {
 
     //
     //
-    #[inline]
     fn check_diagonal(&self, diag: Diagonal) -> bool {
         match diag {
             Diagonal::Primary => self.streak_line(Self::in_primary),
@@ -162,22 +161,31 @@ impl<const LEN: usize, const COLS: usize> GameBoard<LEN, COLS> {
     //
     //
     #[inline]
-    pub fn in_primary(idx: usize) -> bool {
-        idx % (COLS + 1) == 0
+    fn in_primary(idx: usize) -> bool {
+        let pos = Self::convert_to_pos(idx);
+        pos.0 == pos.1
     }
 
     //
     //
     #[inline]
-    pub fn in_secondary(idx: usize) -> bool {
-        idx % (COLS - 1) == 0
+    fn in_secondary(idx: usize) -> bool {
+        let pos = Self::convert_to_pos(idx);
+        pos.0 + pos.1 == COLS - 1
     }
 
     //
     //
     #[inline]
-    pub fn in_center(idx: usize) -> bool {
+    fn in_center(idx: usize) -> bool {
         Self::in_primary(idx) && Self::in_secondary(idx)
+    }
+
+    //
+    //
+    #[inline]
+    fn convert_to_pos(idx: usize) -> Pos {
+        (idx / COLS, idx % COLS)
     }
 
     //
