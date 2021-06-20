@@ -5,25 +5,21 @@ use std::io::{self, Write};
 
 pub type Pos = (usize, usize);
 
-#[derive(Debug)]
-pub struct GameBoard<const S: usize> {
-    table: [Spot; S],
+#[derive(Debug, Clone, Copy)]
+pub struct GameBoard<const LEN: usize, const COLS: usize> {
+    board: [Spot; LEN],
     player: Player,
-    cols: usize,
 }
 
-impl<const S: usize> GameBoard<S> {
+impl<const LEN: usize, const COLS: usize> GameBoard<LEN, COLS> {
     //
     //
-    pub fn new(cols: usize) -> Result<GameBoard<S>, Malformed> {
-        if S % cols != 0 {
-            return Err(Malformed);
-        }
+    pub fn new() -> Result<Self, MalformedError> {
+        Self::constraints()?;
 
         Ok(GameBoard {
-            table: [Spot::default(); S],
+            board: [Spot::default(); LEN],
             player: Player::X,
-            cols,
         })
     }
 
@@ -45,15 +41,15 @@ impl<const S: usize> GameBoard<S> {
     //
     //
     fn convert_to_linear(&self, pos: Pos) -> Result<usize, Bound> {
-        let rows = self.table.len() / self.cols;
+        let rows = self.board.len() / COLS;
         let row_oob = pos.0 >= rows;
-        let col_oob = pos.1 >= self.cols;
+        let col_oob = pos.1 >= COLS;
 
         match (row_oob, col_oob) {
             (true, true) => Err(Bound::Both),
             (true, false) => Err(Bound::Row),
             (false, true) => Err(Bound::Col),
-            (false, false) => Ok(pos.1 + self.cols * pos.0),
+            (false, false) => Ok(pos.1 + COLS * pos.0),
         }
     }
 
@@ -61,7 +57,7 @@ impl<const S: usize> GameBoard<S> {
     //
     fn set_piece(&mut self, pos: Pos) -> Result<usize, BoardError> {
         let idx = self.convert_to_linear(pos)?;
-        let spot = self.table.get_mut(idx).expect("Index is out of bounds!");
+        let spot = self.board.get_mut(idx).expect("Index is out of bounds!");
 
         if let Spot::Empty = *spot {
             *spot = Spot::Occupied(self.player.into());
@@ -74,9 +70,9 @@ impl<const S: usize> GameBoard<S> {
     //
     //
     fn check_horizontal(&self, idx: usize) -> bool {
-        let start = (idx / self.cols) * self.cols;
-        let end = start + self.cols;
-        let row = &self.table[start..end];
+        let start = (idx / COLS) * COLS;
+        let end = start + COLS;
+        let row = &self.board[start..end];
 
         row.iter()
             .all(|spot| Spot::Occupied(self.player.into()) == *spot)
@@ -85,53 +81,65 @@ impl<const S: usize> GameBoard<S> {
     //
     //
     fn check_vertical(&self, idx: usize) -> bool {
-        let mut col = self.table.iter().enumerate().filter_map(|(col, spot)| {
-            let remainder = |n| n % self.cols;
+        let remainder = |n| n % COLS;
+        let f = |n| remainder(n) == remainder(idx);
+        let ff = |(n, spot)| if f(n) { Some(spot) } else { None };
 
-            if remainder(col) == remainder(idx) {
-                Some(spot)
-            } else {
-                None
-            }
-        });
-
-        col.all(|spot| Spot::Occupied(self.player.into()) == *spot)
+        self.board
+            .iter()
+            .enumerate()
+            .filter_map(ff)
+            .all(|spot| Spot::Occupied(self.player.into()) == *spot)
     }
 
     //
     //
-    fn check_diagonal(&self, _idx: usize) -> bool {
-        // TODO
-        false
-    }
-
-    //
-    //
-    fn check_win(&self, idx: usize) -> bool {
-        self.check_horizontal(idx) || self.check_vertical(idx) || self.check_diagonal(idx)
-    }
-
-    //
-    //
-    fn check_draw(&self) -> bool {
-        self.table.iter().all(|spot| Spot::Empty != *spot)
-    }
-
-    //
-    //
-    pub fn print(&self) {
-        let rows = self.table.chunks(self.cols);
-
-        for (n, row) in rows.enumerate() {
-            if let Some((last, rest)) = row.split_last() {
-                rest.iter().for_each(|spot| print!("{}|", spot));
-                println!("{}", last);
-            }
-
-            if n != self.cols - 1 {
-                println!("{:-^5}", "-");
-            }
+    fn check_diagonals(&self, idx: usize) -> bool {
+        if COLS.pow(2) != LEN {
+            return false;
         }
+
+        let in_primary = |n| n % (COLS + 1) == 0;
+        let in_secondary = |n| n % (COLS - 1) == 0;
+        let in_center = |n| in_primary(n) && in_secondary(n);
+
+        if in_center(idx) {
+            self.check_diagonal(in_primary) || self.check_diagonal(in_primary)
+        } else if in_primary(idx) {
+            self.check_diagonal(in_primary)
+        } else if in_secondary(idx) {
+            self.check_diagonal(in_secondary)
+        } else {
+            false
+        }
+    }
+
+    //
+    //
+    fn check_diagonal<F>(&self, f: F) -> bool
+    where
+        F: Fn(usize) -> bool,
+    {
+        let ff = |(n, spot)| if f(n) { Some(spot) } else { None };
+        self.board
+            .iter()
+            .enumerate()
+            .filter_map(ff)
+            .all(|spot| Spot::Occupied(self.player.into()) == *spot)
+    }
+
+    //
+    //
+    #[inline]
+    fn check_win(&self, idx: usize) -> bool {
+        self.check_horizontal(idx) || self.check_vertical(idx) || self.check_diagonals(idx)
+    }
+
+    //
+    //
+    #[inline]
+    fn check_draw(&self) -> bool {
+        self.board.iter().all(|spot| Spot::Empty != *spot)
     }
 
     //
@@ -149,6 +157,40 @@ impl<const S: usize> GameBoard<S> {
             Player::O => self.player = Player::X,
             Player::X => self.player = Player::O,
         }
+    }
+
+    #[inline]
+    fn constraints() -> Result<(), MalformedError> {
+        if COLS == 0 {
+            Err(MalformedError::ColsZero)
+        } else if LEN == 0 {
+            Err(MalformedError::LenZero)
+        } else if LEN != COLS.pow(2) {
+            Err(MalformedError::NotSquare)
+        } else {
+            Ok(())
+        }
+    }
+}
+
+impl<const LEN: usize, const COLS: usize> Display for GameBoard<LEN, COLS> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let rows = self.board.chunks(COLS);
+
+        for (n, row) in rows.enumerate() {
+            if let Some((last, rest)) = row.split_last() {
+                for spot in rest {
+                    write!(f, "{}|", spot)?;
+                }
+                writeln!(f, "{}", last)?;
+            }
+
+            if n != COLS - 1 {
+                writeln!(f, "{:-^len$}", "", len = COLS * 2 - 1)?;
+            }
+        }
+
+        Ok(())
     }
 }
 
@@ -205,7 +247,7 @@ pub enum Player {
 
 impl Display for Player {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match *self {
+        match self {
             Self::X => write!(f, "X"),
             Self::O => write!(f, "O"),
         }
@@ -232,6 +274,15 @@ pub enum BoardError {
     Occupied,
 }
 
+impl Display for BoardError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Occupied => write!(f, "This position is already occupied!"),
+            Self::OutOfBounds(_) => write!(f, "Provided coordinates are out of the board!"),
+        }
+    }
+}
+
 impl From<Bound> for BoardError {
     fn from(bound: Bound) -> Self {
         Self::OutOfBounds(bound)
@@ -239,23 +290,31 @@ impl From<Bound> for BoardError {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Malformed;
+pub enum MalformedError {
+    LenZero,
+    ColsZero,
+    NotSquare,
+}
 
-fn play_loop<const S: usize>(mut board: GameBoard<S>) {
+impl Display for MalformedError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::LenZero => write!(f, "Cannot construct board with zero length"),
+            Self::ColsZero => write!(f, "Cannot construct board with zero columns"),
+            Self::NotSquare => write!(f, "Cannot construct non squared board"),
+        }
+    }
+}
+
+fn play_loop<const LEN: usize, const COLS: usize>(mut board: GameBoard<LEN, COLS>) {
+    println!("{}", board);
+
     let mut turn = Turn::Next;
-
     while let Turn::Next = turn {
         println!("Current player turn is: {}", board.current_player());
-        let pos = player_input().expect("Something went wrong!");
+        let pos = player_input().expect("Something went wrong with I/O!");
 
         match board.turn(pos) {
-            Err(err) => match err {
-                BoardError::Occupied => println!("This position is already occupied!"),
-                BoardError::OutOfBounds(_) => {
-                    println!("Provided coordinates are out of the board!")
-                }
-            },
-
             Ok(win @ Turn::Win(player)) => {
                 println!("Game over, player: {} won!", player);
                 turn = win;
@@ -264,10 +323,12 @@ fn play_loop<const S: usize>(mut board: GameBoard<S>) {
                 println!("Game over, it's a draw!");
                 turn = draw;
             }
+
+            Err(err) => println!("{}", err),
             _ => (),
         }
 
-        board.print();
+        println!("{}", board);
     }
 }
 
@@ -296,11 +357,10 @@ fn player_input() -> Result<(usize, usize), io::Error> {
 }
 
 fn main() {
-    let cols = 3;
-    const BOARD_LEN: usize = 9;
+    const COLS: usize = 4;
+    const LEN: usize = COLS.pow(2);
 
-    let board = GameBoard::<BOARD_LEN>::new(cols)
-        .expect("Cannot construct a board with the specified paramaters");
+    let board = GameBoard::<LEN, COLS>::new().expect("Board construction failed");
 
     play_loop(board);
 }
