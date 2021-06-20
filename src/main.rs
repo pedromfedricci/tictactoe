@@ -72,9 +72,22 @@ impl<const LEN: usize, const COLS: usize> GameBoard<LEN, COLS> {
     fn check_horizontal(&self, idx: usize) -> bool {
         let start = (idx / COLS) * COLS;
         let end = start + COLS;
-        let row = &self.board[start..end];
 
-        row.iter()
+        self.board[start..end]
+            .iter()
+            .all(|spot| Spot::Occupied(self.player.into()) == *spot)
+    }
+
+    //
+    //
+    fn streak_line<F>(&self, f: F) -> bool
+    where
+        F: Fn(usize) -> bool,
+    {
+        self.board
+            .iter()
+            .enumerate()
+            .filter_map(|(n, spot)| if f(n) { Some(spot) } else { None })
             .all(|spot| Spot::Occupied(self.player.into()) == *spot)
     }
 
@@ -82,33 +95,24 @@ impl<const LEN: usize, const COLS: usize> GameBoard<LEN, COLS> {
     //
     fn check_vertical(&self, idx: usize) -> bool {
         let remainder = |n| n % COLS;
-        let f = |n| remainder(n) == remainder(idx);
-        let ff = |(n, spot)| if f(n) { Some(spot) } else { None };
+        let same_col = |n| remainder(n) == remainder(idx);
 
-        self.board
-            .iter()
-            .enumerate()
-            .filter_map(ff)
-            .all(|spot| Spot::Occupied(self.player.into()) == *spot)
+        self.streak_line(same_col)
     }
 
     //
     //
     fn check_diagonals(&self, idx: usize) -> bool {
-        if COLS.pow(2) != LEN {
+        if !Self::is_squared() {
             return false;
         }
 
-        let in_primary = |n| n % (COLS + 1) == 0;
-        let in_secondary = |n| n % (COLS - 1) == 0;
-        let in_center = |n| in_primary(n) && in_secondary(n);
-
-        if in_center(idx) {
-            self.check_diagonal(in_primary) || self.check_diagonal(in_primary)
-        } else if in_primary(idx) {
-            self.check_diagonal(in_primary)
-        } else if in_secondary(idx) {
-            self.check_diagonal(in_secondary)
+        if Self::in_center(idx) {
+            self.check_diagonal(Diagonal::Primary) || self.check_diagonal(Diagonal::Secondary)
+        } else if Self::in_primary(idx) {
+            self.check_diagonal(Diagonal::Primary)
+        } else if Self::in_secondary(idx) {
+            self.check_diagonal(Diagonal::Secondary)
         } else {
             false
         }
@@ -116,16 +120,11 @@ impl<const LEN: usize, const COLS: usize> GameBoard<LEN, COLS> {
 
     //
     //
-    fn check_diagonal<F>(&self, f: F) -> bool
-    where
-        F: Fn(usize) -> bool,
-    {
-        let ff = |(n, spot)| if f(n) { Some(spot) } else { None };
-        self.board
-            .iter()
-            .enumerate()
-            .filter_map(ff)
-            .all(|spot| Spot::Occupied(self.player.into()) == *spot)
+    fn check_diagonal(&self, diag: Diagonal) -> bool {
+        match diag {
+            Diagonal::Primary => self.streak_line(Self::in_primary),
+            Diagonal::Secondary => self.streak_line(Self::in_secondary),
+        }
     }
 
     //
@@ -152,6 +151,34 @@ impl<const LEN: usize, const COLS: usize> GameBoard<LEN, COLS> {
     //
     //
     #[inline]
+    pub fn is_squared() -> bool {
+        COLS.pow(2) == LEN
+    }
+
+    //
+    //
+    #[inline]
+    pub fn in_primary(idx: usize) -> bool {
+        idx % (COLS + 1) == 0
+    }
+
+    //
+    //
+    #[inline]
+    pub fn in_secondary(idx: usize) -> bool {
+        idx % (COLS - 1) == 0
+    }
+
+    //
+    //
+    #[inline]
+    pub fn in_center(idx: usize) -> bool {
+        Self::in_primary(idx) && Self::in_secondary(idx)
+    }
+
+    //
+    //
+    #[inline]
     fn toggle_player(&mut self) {
         match self.player {
             Player::O => self.player = Player::X,
@@ -165,8 +192,6 @@ impl<const LEN: usize, const COLS: usize> GameBoard<LEN, COLS> {
             Err(MalformedError::ColsZero)
         } else if LEN == 0 {
             Err(MalformedError::LenZero)
-        } else if LEN != COLS.pow(2) {
-            Err(MalformedError::NotSquare)
         } else {
             Ok(())
         }
@@ -176,6 +201,7 @@ impl<const LEN: usize, const COLS: usize> GameBoard<LEN, COLS> {
 impl<const LEN: usize, const COLS: usize> Display for GameBoard<LEN, COLS> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let rows = self.board.chunks(COLS);
+        let len = rows.len();
 
         for (n, row) in rows.enumerate() {
             if let Some((last, rest)) = row.split_last() {
@@ -185,8 +211,8 @@ impl<const LEN: usize, const COLS: usize> Display for GameBoard<LEN, COLS> {
                 writeln!(f, "{}", last)?;
             }
 
-            if n != COLS - 1 {
-                writeln!(f, "{:-^len$}", "", len = COLS * 2 - 1)?;
+            if n < len - 1 {
+                writeln!(f, "{:-^width$}", "", width = COLS * 2 - 1)?;
             }
         }
 
@@ -269,6 +295,12 @@ pub enum Bound {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Diagonal {
+    Primary,
+    Secondary,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BoardError {
     OutOfBounds(Bound),
     Occupied,
@@ -293,7 +325,6 @@ impl From<Bound> for BoardError {
 pub enum MalformedError {
     LenZero,
     ColsZero,
-    NotSquare,
 }
 
 impl Display for MalformedError {
@@ -301,7 +332,6 @@ impl Display for MalformedError {
         match self {
             Self::LenZero => write!(f, "Cannot construct board with zero length"),
             Self::ColsZero => write!(f, "Cannot construct board with zero columns"),
-            Self::NotSquare => write!(f, "Cannot construct non squared board"),
         }
     }
 }
@@ -357,8 +387,8 @@ fn player_input() -> Result<(usize, usize), io::Error> {
 }
 
 fn main() {
-    const COLS: usize = 4;
-    const LEN: usize = COLS.pow(2);
+    const COLS: usize = 3;
+    const LEN: usize = 9;
 
     let board = GameBoard::<LEN, COLS>::new().expect("Board construction failed");
 
