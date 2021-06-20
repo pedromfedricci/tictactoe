@@ -108,7 +108,7 @@ impl<const LEN: usize, const COLS: usize> GameBoard<LEN, COLS> {
         }
 
         if Self::in_center(idx) {
-            self.check_diagonal(Diagonal::Primary) || self.check_diagonal(Diagonal::Secondary)
+            self.check_diagonal(Diagonal::Both)
         } else if Self::in_primary(idx) {
             self.check_diagonal(Diagonal::Primary)
         } else if Self::in_secondary(idx) {
@@ -120,10 +120,14 @@ impl<const LEN: usize, const COLS: usize> GameBoard<LEN, COLS> {
 
     //
     //
+    #[inline]
     fn check_diagonal(&self, diag: Diagonal) -> bool {
         match diag {
             Diagonal::Primary => self.streak_line(Self::in_primary),
             Diagonal::Secondary => self.streak_line(Self::in_secondary),
+            Diagonal::Both => {
+                self.streak_line(Self::in_primary) || self.streak_line(Self::in_secondary)
+            }
         }
     }
 
@@ -298,6 +302,7 @@ pub enum Bound {
 enum Diagonal {
     Primary,
     Secondary,
+    Both,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -353,16 +358,16 @@ fn play_loop<const LEN: usize, const COLS: usize>(mut board: GameBoard<LEN, COLS
                 println!("Game over, it's a draw!");
                 turn = draw;
             }
+            Ok(Turn::Next) => (),
 
             Err(err) => println!("{}", err),
-            _ => (),
         }
 
         println!("{}", board);
     }
 }
 
-fn player_input() -> Result<(usize, usize), io::Error> {
+fn player_input() -> Result<Pos, io::Error> {
     loop {
         print!("Inform position (row column): ");
         io::stdout().flush()?;
@@ -376,12 +381,10 @@ fn player_input() -> Result<(usize, usize), io::Error> {
             .take(2)
             .collect::<Vec<_>>();
 
-        if matches.len() >= 2 {
-            return Ok((matches[0], matches[1]));
-        } else if matches.len() == 1 {
-            println!("Need to inform both coordinates! (row and column)");
-        } else {
-            println!("Could not convert provided input to coordinates!");
+        match matches.len() {
+            len if len >= 2 => return Ok((matches[0], matches[1])),
+            1 => println!("Need to inform both coordinates!"),
+            _ => println!("Could not convert provided input to coordinates!"),
         }
     }
 }
