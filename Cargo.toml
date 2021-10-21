@@ -1,9 +1,13 @@
 [package]
 name = "tictactoe"
-version = "0.1.0"
+version = "0.2.0"
 authors = ["Pedro Fedricci <pedromfedricci@gmail.com>"]
-edition = "2018"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+edition = "2021"
+# edition 2021 implies resolver = "2"
+# resolver = "2"
+
+# stabilized bindings_after_at
+rust-version = "1.56"
 
 [dependencies]
